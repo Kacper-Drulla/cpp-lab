@@ -1,7 +1,8 @@
 #include <iostream>
 
-int maint() {
-    std::cout << "Hello, World!" << std:endl;
-    // lalala
+using namespace std;
+
+int main() {
+    cout << "hello" << endl;
     return 0;
 }
