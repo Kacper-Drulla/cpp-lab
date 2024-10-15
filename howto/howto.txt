@@ -1,0 +1,7 @@
+#Raylib:
+g++ main.cpp -o raylib_app -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+./raylib_app
+
+#SFML:
+g++ -o sfml_starter main.cpp -lsfml-graphics -lsfml-window -lsfml-system
+./sfml_starter
