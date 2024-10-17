@@ -2,10 +2,11 @@
 #include "raymath.h"
 #include <iostream>
 #include <string>
+#include <vector>
 
 using namespace std;
 
-#define G 400
+#define G 200
 #define PLAYER_JUMP_SPD 350.0f
 
 // Struct declaration
@@ -21,49 +22,105 @@ typedef struct EnvItem {
 } EnvItem;
 
 // Class declaration
-class Entity {
+class Player {
    public:
       int hp;
-      Vector2 position;
 
-   public:
-      virtual void UpdatePosition() {}
-};
-
-class Player : public Entity {
-   public:
-      float speed;
-      float jumpSpeed;
+      float maxSpeed;
+      float friction;
+      float acceleration;
+      
+      //Jump related
       bool canJump;
+      float jumpSpeed;
+      float speedSpeed;
+
       Rectangle playerRect;
-   
+      Vector2 position;
+      Vector2 velocity;
+
    public:
-      Player(int hp, Vector2 position, float speed, float jumpSpeed) {
+      Player(int hp, Vector2 position, float maxSpeed, float jumpSpeed, float acceleration, float friction) {
          this->hp = hp;
          this->position = position;
-         this->speed = speed;
+         this->maxSpeed = maxSpeed;
          this->canJump = false;
-         this->playerRect = Rectangle{position.x - 20, position.y - 40, 40.0f, 40.0f};
+         this->playerRect = Rectangle{position.x, position.y, 20.0f, 40.0f};
          this->jumpSpeed = jumpSpeed;
+         this->acceleration = acceleration;
+         this->friction = friction;
+         this->velocity = Vector2{0, 0};
+         this->speedSpeed = maxSpeed;
       }
       Player() = default;
 
-      void GetInput() {}
+      void PlayerMove(float deltaTime, vector<EnvItem> envItems) {
+         PlayerJump(envItems, deltaTime);
+
+         Vector2 inputVector = Vector2{ 0,0 };
+         
+         if (IsKeyDown(KEY_A)) {
+            inputVector.x = -1;
+         }
+         if (IsKeyDown(KEY_D)) {
+            inputVector.x = 1;
+         }
+
+         if (inputVector.x != 0) {
+            velocity.x = Lerp(velocity.x, inputVector.x * maxSpeed, acceleration);
+         } else {
+            velocity.x = Lerp(velocity.x, 0.0, friction);
+         }
+         
+         position = Vector2Add(position, Vector2{velocity.x * deltaTime, velocity.y * deltaTime});
+      }
+
+      private:
+         void PlayerJump(vector<EnvItem> envItems, float deltaTime) {
+            if (IsKeyDown(KEY_SPACE) && canJump) {
+               speedSpeed = -jumpSpeed;
+               canJump = false;
+            }
+            
+            bool hitObstacle = false;
+            for (EnvItem item : envItems) {
+               if (item.isBlocking && 
+                  item.rect.x <= position.x &&
+                  item.rect.x + item.rect.width >= position.x &&
+                  item.rect.y >= position.y &&
+                  item.rect.y <= position.y + speedSpeed * deltaTime) 
+               {   
+                  hitObstacle = true;
+                  position.y = item.rect.y;
+                  break;
+               }            
+            }
+
+            if (!hitObstacle) {
+               position.y += speedSpeed * deltaTime;
+               speedSpeed += G * deltaTime;
+               canJump = false;
+            } else {
+               canJump = true;
+            }
+         }
+
+
 };
 
 class GameResources {
    public:
       Player player;
       Camera2D camera;
-      EnvItem envItems[5];
+      vector<EnvItem> envItems;
 
    public:
       GameResources(Player player, Camera2D camera) {
-         envItems[0] = {{0, 0, 1000, 400}, false, LIGHTGRAY};
-         envItems[1] = {{ 0, 400, 1000, 200 }, true, GRAY };
-         envItems[2] = {{ 300, 200, 400, 10 }, true, GRAY };
-         envItems[3] = {{ 250, 300, 100, 10 }, true, GRAY };
-         envItems[4] = {{ 650, 300, 100, 10 }, true, GRAY };
+         envItems.push_back({{0, 0, 1000, 400}, false, LIGHTGRAY});
+         envItems.push_back({{ 0, 400, 1000, 200 }, true, GRAY });
+         envItems.push_back({{ 300, 200, 400, 10 }, true, GRAY });
+         envItems.push_back({{ 250, 300, 100, 10 }, true, GRAY });
+         envItems.push_back({{ 650, 300, 100, 10 }, true, GRAY });
          
          this->player = player;
          this->camera = camera;
@@ -108,18 +165,8 @@ class GameProcess {
          this->gameSettings = gameSettings;
       }
 
-      void InitGame() {
-         IntVector2 screenDim = gameSettings.GetScreenDim();
-
-         int screenWidth = screenDim.x;
-         int screenHeight = screenDim.y;
-
-         InitWindow(screenWidth, screenHeight, gameSettings.GetWindowTitle().c_str());
-         SetTargetFPS(gameSettings.GetTargetFps());
-      }
-
       void Run() {
-         Player player(20, Vector2{ 400., 280.0 }, 300, 300);
+         Player player(20, Vector2{ 400., 210.0 }, 150, 220, 0.2, 0.1);
          IntVector2 screenDim = gameSettings.GetScreenDim();
 
          Camera2D camera = { 0 };
@@ -130,6 +177,8 @@ class GameProcess {
 
          GameResources gameResources(player, camera);
 
+         this->InitGame();
+
          while (!WindowShouldClose())
          {
             Update(GetFrameTime(), gameResources);
@@ -138,62 +187,57 @@ class GameProcess {
       }
 
    private:
-      void Update(float deltaTime, GameResources& gameResources) {
-         // Camera Update
+      void InitGame() {
          IntVector2 screenDim = gameSettings.GetScreenDim();
-         static float minSpeed = 40;
-         static float minEffectLength = 10;
-         static float fractionSpeed = 1.0f;
 
-         gameResources.camera.offset = Vector2{ screenDim.x / 2.0f, screenDim.y / 2.0f };
-         Vector2 diff = Vector2Subtract(gameResources.player.position, gameResources.camera.target);
-         float length = Vector2Length(diff);
+         int screenWidth = screenDim.x;
+         int screenHeight = screenDim.y;
 
-         if (length > minEffectLength) {
-            float speed = fmaxf(fractionSpeed * length, minSpeed);
-            gameResources.camera.target = Vector2Add(
-               gameResources.camera.target,
-               Vector2Scale(diff, speed * deltaTime / length)
-            );
-         }
+         InitWindow(screenWidth, screenHeight, gameSettings.GetWindowTitle().c_str());
+         SetTargetFPS(gameSettings.GetTargetFps());
+      }
+
+      void Update(float deltaTime, GameResources& gameResources) {
+         this->CameraMovement(gameResources, deltaTime);
+
+         gameResources.player.PlayerMove(deltaTime, gameResources.envItems);
 
          // Player Movement
-         if (IsKeyDown(KEY_A)) {
-            gameResources.player.position.x -= 100 * deltaTime;
-         }
-         if (IsKeyDown(KEY_D)) {
-            gameResources.player.position.x += 100 * deltaTime;
-         }
-         if (IsKeyDown(KEY_SPACE) && gameResources.player.canJump) {
-            gameResources.player.speed = -gameResources.player.jumpSpeed;
-            gameResources.player.canJump = false;
-         }
+         // if (IsKeyDown(KEY_A)) {
+         //    gameResources.player.position.x -= 100 * deltaTime;
+         // }
+         // if (IsKeyDown(KEY_D)) {
+         //    gameResources.player.position.x += 100 * deltaTime;
+         // }
+         // if (IsKeyDown(KEY_SPACE) && gameResources.player.canJump) {
+         //    gameResources.player.maxSpeed = -gameResources.player.jumpSpeed;
+         //    gameResources.player.canJump = false;
+         // }
 
-         bool hitObstacle = false;
-         for (EnvItem item : gameResources.envItems) {
-            if (item.isBlocking && 
-               item.rect.x <= gameResources.player.position.x &&
-               item.rect.x + item.rect.width >= gameResources.player.position.x &&
-               item.rect.y >= gameResources.player.position.y &&
-               item.rect.y <= gameResources.player.position.y + gameResources.player.speed * deltaTime) 
-            {   
-               hitObstacle = true;
-               gameResources.player.speed = 0.0f;
-               gameResources.player.position.y = item.rect.y;
-               break;
-            }            
-         }
+         // bool hitObstacle = false;
+         // for (EnvItem item : gameResources.envItems) {
+         //    if (item.isBlocking && 
+         //       item.rect.x <= gameResources.player.position.x &&
+         //       item.rect.x + item.rect.width >= gameResources.player.position.x &&
+         //       item.rect.y >= gameResources.player.position.y &&
+         //       item.rect.y <= gameResources.player.position.y + gameResources.player.maxSpeed * deltaTime) 
+         //    {   
+         //       hitObstacle = true;
+         //       gameResources.player.position.y = item.rect.y;
+         //       break;
+         //    }            
+         // }
 
-         if (!hitObstacle) {
-            gameResources.player.position.y += gameResources.player.speed * deltaTime;
-            gameResources.player.speed += G*deltaTime;
-            gameResources.player.canJump = false;
-         } else {
-            gameResources.player.canJump = true;
-         }
+         // if (!hitObstacle) {
+         //    gameResources.player.position.y += gameResources.player.speed * deltaTime;
+         //    // gameResources.player.speed += G*deltaTime;
+         //    gameResources.player.canJump = false;
+         // } else {
+         //    gameResources.player.canJump = true;
+         // }
 
          //Update Rect
-         gameResources.player.playerRect.x = gameResources.player.position.x - 20;
+         gameResources.player.playerRect.x = gameResources.player.position.x - 10;
          gameResources.player.playerRect.y = gameResources.player.position.y - 40;             
       }
 
@@ -216,13 +260,32 @@ class GameProcess {
 
          EndDrawing();
       }
+
+      // Helper functions:
+      void CameraMovement(GameResources& gameResources, float deltaTime) {
+         IntVector2 screenDim = gameSettings.GetScreenDim();
+         static float minSpeed = 40;
+         static float minEffectLength = 10;
+         static float fractionSpeed = 1.0f;
+
+         gameResources.camera.offset = Vector2{ screenDim.x / 2.0f, screenDim.y / 2.0f };
+         Vector2 diff = Vector2Subtract(gameResources.player.position, gameResources.camera.target);
+         float length = Vector2Length(diff);
+
+         if (length > minEffectLength) {
+            float speed = fmaxf(fractionSpeed * length, minSpeed);
+            gameResources.camera.target = Vector2Add(
+               gameResources.camera.target,
+               Vector2Scale(diff, speed * deltaTime / length)
+            );
+         }
+      }
 };
 
 int main() {
    GameSettings gameSettings(800, 450, "Window Title", 60);
    GameProcess gameProcess(gameSettings);
 
-   gameProcess.InitGame();
    gameProcess.Run();
 
    return 0;
